@@ -163,8 +163,8 @@ def emergency(state: HealthState) -> dict:
     reason = (state.get("emergency") or {}).get("reason", "")
     text = (
         "⚠️ **This may be a medical emergency.** "
-        f"{reason} Please **call 911 (or your local emergency number) or go to the nearest emergency room now**. "
-        "If you are having thoughts of harming yourself, call or text **988** (Suicide & Crisis Lifeline, US). "
+        f"{reason} Please **call 112 (national emergency number) or 108 for an ambulance, or go to the nearest emergency room now**. "
+        "If you are having thoughts of harming yourself, please call **Tele-MANAS at 14416** (or 1-800-891-4416), India's free 24/7 mental health helpline. "
         "\n\nIf you're safe and simply want follow-up care afterwards, I've listed suitable doctors below."
     )
     return {"messages": [_ai(text, {"type": "emergency", "reason": reason})], "trace": _trace(state, "emergency")}

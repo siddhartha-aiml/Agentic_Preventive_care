@@ -1,14 +1,14 @@
 # Fly.io config for Your Health Guide.
 # Change `app` to a globally unique name (or run `fly launch --no-deploy` to generate one).
 app = "your-health-guide"
-primary_region = "iad"
+primary_region = "sin"  # Singapore (closest Fly region to India)
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
   OPENAI_MODEL = "gpt-4.1-mini"
-  CLINIC_TIMEZONE = "America/New_York"
+  CLINIC_TIMEZONE = "Asia/Kolkata"
   CORS_ORIGINS = ""
   SHOW_DEMO_ACCOUNTS = "true"
 

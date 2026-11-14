@@ -335,7 +335,7 @@ function Stories() {
   const stories = [
     { name: "Priya S.", text: "I described my headaches and within minutes I had a neurologist who'd treated migraines like mine — booked for the next morning.", tag: "Neurology" },
     { name: "Marcus T.", text: "It remembered my diabetes and asked exactly the right questions. Felt like talking to a thoughtful nurse.", tag: "Endocrinology" },
-    { name: "Elena R.", text: "When I mentioned chest pain spreading to my arm, it told me to call 911 immediately. That honesty matters.", tag: "Cardiology" },
+    { name: "Elena R.", text: "When I mentioned chest pain spreading to my arm, it told me to call 112 immediately. That honesty matters.", tag: "Cardiology" },
   ];
   return (
     <section id="stories" className="scroll-mt-24 bg-gradient-to-b from-white to-brand-50/60 py-28">
@@ -383,7 +383,7 @@ function Footer() {
         <Logo />
         <p className="max-w-xl text-xs leading-relaxed text-slate-500">
           Your Health Guide provides triage and appointment guidance and does not provide medical diagnosis or treatment.
-          In an emergency call 911 or your local emergency number.
+          In an emergency call 112 (ambulance 108). For mental health support, call Tele-MANAS 14416.
         </p>
         <p className="text-xs text-slate-400">© {new Date().getFullYear()} Your Health Guide</p>
       </div>

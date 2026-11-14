@@ -111,7 +111,7 @@ function Progress({ state, booked }: { state: ChatState | null; booked: boolean 
       )}
       <div className="mt-auto flex gap-3 rounded-3xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
         <ShieldCheck className="h-5 w-5 shrink-0 text-brand-600" />
-        This assistant helps you find the right care and does not provide a diagnosis. In an emergency, call 911.
+        This assistant helps you find the right care and does not provide a diagnosis. In an emergency, call 112.
       </div>
     </aside>
   );
@@ -248,7 +248,7 @@ export default function Chat() {
         </div>
         <div className="mx-auto w-full max-w-3xl px-4 pb-5 sm:px-6">
           <Composer onSend={(t) => send(t)} busy={busy} />
-          <p className="mt-2 text-center text-[11px] text-slate-400">Not a diagnosis. If this is an emergency, call 911.</p>
+          <p className="mt-2 text-center text-[11px] text-slate-400">Not a diagnosis. If this is an emergency, call 112 (ambulance 108).</p>
         </div>
       </div>
       <Progress state={state} booked={booked} />

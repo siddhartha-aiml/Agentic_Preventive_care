@@ -132,7 +132,11 @@ export function MessageItem({ m, onSelectProvider }: { m: ChatMessage; onSelectP
         <div className="max-w-[85%] rounded-3xl rounded-bl-lg border border-red-200 bg-red-50 px-5 py-4 text-[15px] leading-relaxed text-red-900 shadow-sm sm:max-w-[75%]">
           <div className="mb-2 flex items-center gap-2 font-bold text-red-700"><Siren className="h-5 w-5" /> Urgent safety notice</div>
           <div className="prose-chat [&_strong]:text-red-800"><ReactMarkdown>{m.content}</ReactMarkdown></div>
-          <a href="tel:911" className="mt-3 inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700">Call 911 now</a>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href="tel:112" className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700">Call 112 now</a>
+            <a href="tel:108" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-red-700 ring-1 ring-red-300 hover:bg-red-100">Ambulance 108</a>
+            <a href="tel:14416" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-red-700 ring-1 ring-red-300 hover:bg-red-100">Tele-MANAS 14416</a>
+          </div>
         </div>
       </motion.div>
     );
