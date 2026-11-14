@@ -1,0 +1,35 @@
+# Fly.io config for Your Health Guide.
+# Change `app` to a globally unique name (or run `fly launch --no-deploy` to generate one).
+app = "your-health-guide"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  OPENAI_MODEL = "gpt-4.1-mini"
+  CLINIC_TIMEZONE = "America/New_York"
+  CORS_ORIGINS = ""
+  SHOW_DEMO_ACCOUNTS = "true"
+
+[[mounts]]
+  source = "yhg_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
