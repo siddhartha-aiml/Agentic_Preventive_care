@@ -10,7 +10,7 @@ primary_region = "sin"  # Singapore (closest Fly region to India)
   OPENAI_MODEL = "gpt-4.1-mini"
   CLINIC_TIMEZONE = "Asia/Kolkata"
   CORS_ORIGINS = ""
-  SHOW_DEMO_ACCOUNTS = "true"
+  SHOW_DEMO_ACCOUNTS = "false"
 
 [[mounts]]
   source = "yhg_data"
