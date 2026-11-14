@@ -21,14 +21,23 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-secret-change-me-in-production-please"
     jwt_expire_minutes: int = 60 * 24 * 7
     max_followups: int = 4
-    clinic_timezone: str = "America/New_York"
+    clinic_timezone: str = "Asia/Kolkata"
     booking_window_days: int = 14
     cors_origins: str = "http://localhost:5173"
     static_dir: str = str(BACKEND_DIR / "static")
     seed_on_startup: bool = True
     show_demo_accounts: bool = True  # expose seeded demo logins on the login page
 
-    @field_validator("openai_api_key", "jwt_secret", mode="before")
+    # Voice layer (Sarvam AI). Leave the key empty to fall back to the browser's built-in speech.
+    sarvam_api_key: str = ""
+    sarvam_base_url: str = "https://api.sarvam.ai"
+    sarvam_stt_model: str = "saaras:v3"
+    sarvam_tts_model: str = "bulbul:v3"
+    sarvam_tts_speaker: str = "shubh"
+    sarvam_tts_pace: float = 0.95
+    voice_max_upload_mb: int = 8
+
+    @field_validator("openai_api_key", "jwt_secret", "sarvam_api_key", mode="before")
     @classmethod
     def _clean_secret(cls, v):
         # Secrets pasted with surrounding whitespace/quotes (e.g. `"sk-..."`) would otherwise break auth.
@@ -37,6 +46,10 @@ class Settings(BaseSettings):
     @property
     def demo_mode(self) -> bool:
         return not self.openai_api_key
+
+    @property
+    def voice_enabled(self) -> bool:
+        return bool(self.sarvam_api_key)
 
     @property
     def sqlalchemy_url(self) -> str:

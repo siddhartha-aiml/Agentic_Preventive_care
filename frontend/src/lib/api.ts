@@ -1,3 +1,5 @@
+import type { VoiceConfig } from "./voice";
+
 export type Role = "patient" | "doctor";
 
 export interface User {
@@ -41,6 +43,7 @@ export interface ChatState {
   recommendations: Recommendation[];
   emergency: { reason: string } | null;
   symptom_summary: string;
+  language?: string;
 }
 
 export interface ChatMessage {
@@ -177,7 +180,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = tokenStore.get();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(`/api${path}`, { ...init, headers });
@@ -205,11 +208,22 @@ export const api = {
   me: () => request<User>("/auth/me"),
 
   conversations: () => request<Conversation[]>("/conversations"),
-  createConversation: () => request<ConversationDetail>("/conversations", { method: "POST" }),
+  createConversation: (language?: string) =>
+    request<ConversationDetail>(`/conversations${language ? `?language=${encodeURIComponent(language)}` : ""}`, { method: "POST" }),
   conversation: (id: string) => request<ConversationDetail>(`/conversations/${id}`),
   deleteConversation: (id: string) => request<void>(`/conversations/${id}`, { method: "DELETE" }),
-  send: (id: string, content: string) =>
-    request<SendResult>(`/conversations/${id}/messages`, { method: "POST", body: body({ content }) }),
+  send: (id: string, content: string, language?: string) =>
+    request<SendResult>(`/conversations/${id}/messages`, { method: "POST", body: body({ content, language }) }),
+
+  voiceConfig: () => request<VoiceConfig>("/voice/config"),
+  transcribe: (audio: Blob, language: string) => {
+    const form = new FormData();
+    form.append("file", audio, "speech.wav");
+    form.append("language", language);
+    return request<{ transcript: string; language_code: string }>("/voice/transcribe", { method: "POST", body: form });
+  },
+  speak: (text: string, language: string) =>
+    request<{ mime: string; audio_base64: string }>("/voice/speak", { method: "POST", body: body({ text, language }) }),
 
   provider: (id: number) => request<Provider>(`/providers/${id}`),
   slots: (id: number) => request<DaySlots[]>(`/providers/${id}/slots?days=14`),

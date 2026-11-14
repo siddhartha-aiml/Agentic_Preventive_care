@@ -87,6 +87,7 @@ class ConversationDetail(ConversationOut):
 
 class SendMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    language: str | None = None  # BCP-47 code of the language the patient is using (e.g. hi-IN); None = keep current
 
 
 class SendMessageOut(BaseModel):

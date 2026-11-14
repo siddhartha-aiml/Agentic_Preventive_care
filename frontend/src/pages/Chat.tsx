@@ -6,10 +6,21 @@ import clsx from "clsx";
 import { api, type ChatMessage, type ChatState } from "../lib/api";
 import { MessageItem, ThinkingIndicator, TraceChips } from "../components/ChatParts";
 import SlotPicker from "../components/SlotPicker";
+import VoiceBar from "../components/VoiceBar";
+import { browserSpeak, languageStore, playBase64, stopSpeaking, type VoiceConfig } from "../lib/voice";
 import { specialtyIcon, UrgencyBadge } from "../components/specialty";
 import { PlusMark } from "../components/Logo";
 import { useAuth } from "../lib/auth";
 import { useWorkspace } from "./Workspace";
+
+const SUGGESTIONS_HI = [
+  "तीन दिन से सिर में तेज दर्द है और उल्टी जैसा लगता है",
+  "सीढ़ी चढ़ने पर सीने में जकड़न होती है",
+  "हाथों पर खुजली वाले लाल दाने हो गए हैं",
+  "घबराहट रहती है और रात को नींद नहीं आती",
+  "भारी सामान उठाने के बाद कमर में दर्द है",
+  "खाना खाने के बाद पेट में जलन और गैस होती है",
+];
 
 const SUGGESTIONS = [
   "I've had a throbbing headache with nausea for 3 days",
@@ -132,6 +143,59 @@ export default function Chat() {
   const bottom = useRef<HTMLDivElement>(null);
   const pendingFirst = useRef<string | null>(null);
 
+  // ── Voice ──
+  const [voice, setVoice] = useState<VoiceConfig | null>(null);
+  const [language, setLanguageState] = useState<string>(() => languageStore.get() ?? "hi-IN");
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [speaking, setSpeaking] = useState(false);
+  const languageRef = useRef(language);
+  const speakSeq = useRef(0);
+
+  const setLanguage = (code: string) => {
+    languageRef.current = code;
+    setLanguageState(code);
+    languageStore.set(code);
+  };
+
+  useEffect(() => {
+    api.voiceConfig().then((cfg) => {
+      setVoice(cfg);
+      if (!languageStore.get()) setLanguage(cfg.default_language);
+    }).catch(() => setVoice(null));
+    return () => stopSpeaking();
+  }, []);
+
+  const stopSpeech = () => {
+    speakSeq.current++;
+    stopSpeaking();
+    setSpeaking(false);
+  };
+
+  /** Read assistant messages aloud: Sarvam when configured, the browser's own voice otherwise. */
+  const speak = async (msgs: ChatMessage[]) => {
+    const spoken = msgs.filter((m) => m.role === "assistant").map((m) => (m.payload?.speech as string) || m.content).join(" ").trim();
+    if (!spoken) return;
+    const lang = (msgs[0]?.payload?.language as string) || languageRef.current;
+    const seq = ++speakSeq.current;
+    setSpeaking(true);
+    try {
+      if (voice?.provider === "sarvam") {
+        try {
+          const audio = await api.speak(spoken, lang);
+          if (seq === speakSeq.current) await playBase64(audio.audio_base64, audio.mime);
+        } catch {
+          if (seq === speakSeq.current) await browserSpeak(spoken, lang);
+        }
+      } else {
+        await browserSpeak(spoken, lang);
+      }
+    } catch {
+      /* speech is best-effort; the text is always on screen */
+    } finally {
+      if (seq === speakSeq.current) setSpeaking(false);
+    }
+  };
+
   useEffect(() => {
     setTrace([]);
     setError("");
@@ -166,7 +230,7 @@ export default function Chat() {
       // Start a new conversation, then send.
       setBusy(true);
       try {
-        const c = await api.createConversation();
+        const c = await api.createConversation(languageRef.current);
         upsert(c);
         pendingFirst.current = text;
         nav(`/app/c/${c.id}`);
@@ -178,16 +242,18 @@ export default function Chat() {
       return;
     }
     setError("");
+    stopSpeech();
     setBusy(true);
     setTrace([]);
     const optimistic: ChatMessage = { id: -Date.now(), role: "user", content: text, payload: null, created_at: new Date().toISOString() };
     setMessages((m) => [...m, optimistic]);
     try {
-      const r = await api.send(convId, text);
+      const r = await api.send(convId, text, languageRef.current);
       setMessages((m) => [...m, ...r.messages]);
       setState(r.state);
       setTrace(r.trace);
       upsert(r.conversation);
+      if (autoSpeak) void speak(r.messages);
     } catch (e: any) {
       setError(e.message);
       setMessages((m) => m.filter((x) => x.id !== optimistic.id));
@@ -205,6 +271,11 @@ export default function Chat() {
 
   const booked = messages.some((m) => m.payload?.type === "booking");
   const firstName = user?.full_name.split(" ")[0] ?? "";
+  const hindi = language === "hi-IN";
+  const voiceBar = voice && (
+    <VoiceBar config={voice} language={language} onLanguage={setLanguage} onText={(t) => send(t)} busy={busy}
+      speaking={speaking} onStopSpeaking={stopSpeech} autoSpeak={autoSpeak} onAutoSpeak={setAutoSpeak} />
+  );
 
   // Empty state (no conversation yet)
   if (!id) {
@@ -214,13 +285,20 @@ export default function Chat() {
         <div className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-4 py-10 sm:px-6">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="text-center">
             <PlusMark className="mx-auto h-16 w-16" />
-            <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-brand-950 sm:text-5xl">How are you feeling today, {firstName}?</h1>
-            <p className="mx-auto mt-3 max-w-lg text-slate-600">Describe your symptoms in your own words. I'll ask a few questions, find the right specialist and help you book.</p>
+            <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-brand-950 sm:text-5xl">
+              {hindi ? `${firstName} जी, आज आपको क्या तकलीफ़ है?` : `How are you feeling today, ${firstName}?`}
+            </h1>
+            <p className="mx-auto mt-3 max-w-lg text-slate-600">
+              {hindi
+                ? "माइक दबाकर अपनी तकलीफ़ अपनी भाषा में बताइए। मैं कुछ सवाल पूछूंगा, सही डॉक्टर ढूंढूंगा और अपॉइंटमेंट लेने में मदद करूंगा।"
+                : "Tap the mic and describe your symptoms in your own words. I'll ask a few questions, find the right specialist and help you book."}
+            </p>
           </motion.div>
-          <div className="mt-10"><Composer onSend={(t) => send(t)} busy={busy} autoFocus /></div>
+          {voiceBar && <div className="mt-10">{voiceBar}</div>}
+          <div className={voiceBar ? "mt-3" : "mt-10"}><Composer onSend={(t) => send(t)} busy={busy} autoFocus={!voiceBar} /></div>
           {error && <p className="mt-3 text-center text-sm text-red-600">{error}</p>}
           <div className="mt-6 grid gap-2 sm:grid-cols-2">
-            {SUGGESTIONS.map((s, i) => (
+            {(hindi ? SUGGESTIONS_HI : SUGGESTIONS).map((s, i) => (
               <motion.button key={s} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.05 }}
                 onClick={() => send(s)} disabled={busy}
                 className="rounded-2xl border border-emerald-900/5 bg-white px-4 py-3 text-left text-sm text-slate-600 shadow-sm transition hover:border-brand-400 hover:text-brand-800 hover:shadow-md">
@@ -239,14 +317,15 @@ export default function Chat() {
         <div className="scrollbar-thin flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-5 px-4 py-8 sm:px-6">
             {loading && <div className="flex justify-center py-20"><LoaderCircle className="h-8 w-8 animate-spin text-brand-500" /></div>}
-            {messages.map((m) => <MessageItem key={m.id} m={m} onSelectProvider={setPicker} />)}
+            {messages.map((m) => <MessageItem key={m.id} m={m} onSelectProvider={setPicker} onSpeak={voice ? (msg) => void speak([msg]) : undefined} />)}
             {busy && <ThinkingIndicator phase={state?.phase ?? "intake"} />}
             {!busy && <TraceChips trace={trace} />}
             {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
             <div ref={bottom} />
           </div>
         </div>
-        <div className="mx-auto w-full max-w-3xl px-4 pb-5 sm:px-6">
+        <div className="mx-auto w-full max-w-3xl space-y-2 px-4 pb-5 sm:px-6">
+          {voiceBar}
           <Composer onSend={(t) => send(t)} busy={busy} />
           <p className="mt-2 text-center text-[11px] text-slate-400">Not a diagnosis. If this is an emergency, call 112 (ambulance 108).</p>
         </div>

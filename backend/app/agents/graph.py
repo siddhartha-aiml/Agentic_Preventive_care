@@ -23,7 +23,7 @@ from ..db import SessionLocal
 from ..models import ConsultationSummary, Patient, Provider, ProviderCase, User
 from ..services.scheduling import clinic_now, next_available
 from ..services.similarity import score_cases
-from . import fallback
+from . import fallback, i18n
 from .llm import ConciergeDecision, IntakeDecision, ProviderReasons, SpecialtyClassification, invoke_structured
 from .prompts import (
     CLASSIFIER_SYSTEM,
@@ -48,6 +48,7 @@ class HealthState(TypedDict, total=False):
     patient_id: int
     conversation_id: str
     patient_context: str
+    language: str  # BCP-47 code the patient is speaking, e.g. hi-IN
     phase: str  # intake | recommended
     followup_count: int
     symptom_summary: str
@@ -85,6 +86,10 @@ def _trace(state: HealthState, node: str) -> list[str]:
     return [*state.get("trace", []), node]
 
 
+def _lang(state: HealthState) -> str:
+    return i18n.normalize_language(state.get("language"))
+
+
 def _ai(content: str, payload: dict | None = None, **extra: Any) -> AIMessage:
     kwargs: dict[str, Any] = dict(extra)
     if payload:
@@ -118,6 +123,7 @@ def load_context(state: HealthState) -> dict:
 def intake_agent(state: HealthState) -> dict:
     convo = _chat_history(_since_last_reset(state))
     count = state.get("followup_count", 0)
+    lang = _lang(state)
     decision: IntakeDecision | None = None
     if not settings.demo_mode:
         try:
@@ -126,17 +132,17 @@ def intake_agent(state: HealthState) -> dict:
                 patient_context=state.get("patient_context", ""),
                 followup_count=count,
                 max_followups=settings.max_followups,
-            )
+            ) + i18n.language_rule(lang)
             decision = invoke_structured(IntakeDecision, [SystemMessage(system), *convo])
         except Exception:
             log.exception("Intake LLM failed; using fallback")
     if decision is None:
-        decision = fallback.intake(_user_texts(convo), count, settings.max_followups, state.get("patient_context", ""))
+        decision = fallback.intake(_user_texts(convo), count, settings.max_followups, state.get("patient_context", ""), lang)
     # Hard safety nets independent of the model.
     rule_flag = fallback.detect_red_flag(" ".join(_user_texts(convo)))
     if rule_flag and not decision.red_flag:
         decision.red_flag = True
-        decision.red_flag_reason = f"You mentioned “{rule_flag}”, which can be a sign of a medical emergency."
+        decision.red_flag_reason = i18n.t("rule_flag", lang, flag=rule_flag)
     if decision.action == "ask" and count >= settings.max_followups:
         decision.action = "complete"
     if decision.red_flag:
@@ -155,35 +161,31 @@ def intake_agent(state: HealthState) -> dict:
         if decision.red_flag:
             update["emergency"] = {"reason": decision.red_flag_reason}
         else:
-            update["messages"] = [_ai(decision.question or "Thanks — let me find the right specialist for you.")]
+            update["messages"] = [_ai(decision.question or i18n.t("handoff", lang))]
     return update
 
 
 def emergency(state: HealthState) -> dict:
     reason = (state.get("emergency") or {}).get("reason", "")
-    text = (
-        "⚠️ **This may be a medical emergency.** "
-        f"{reason} Please **call 112 (national emergency number) or 108 for an ambulance, or go to the nearest emergency room now**. "
-        "If you are having thoughts of harming yourself, please call **Tele-MANAS at 14416** (or 1-800-891-4416), India's free 24/7 mental health helpline. "
-        "\n\nIf you're safe and simply want follow-up care afterwards, I've listed suitable doctors below."
-    )
+    text = i18n.t("emergency", _lang(state), reason=reason)
     return {"messages": [_ai(text, {"type": "emergency", "reason": reason})], "trace": _trace(state, "emergency")}
 
 
 def classify_specialty(state: HealthState) -> dict:
     convo = _chat_history(_since_last_reset(state))
     is_emergency = bool(state.get("emergency"))
+    lang = _lang(state)
     result: SpecialtyClassification | None = None
     if not settings.demo_mode:
         try:
-            system = CLASSIFIER_SYSTEM.format(catalogue=specialty_catalogue_text(), patient_context=state.get("patient_context", ""))
+            system = CLASSIFIER_SYSTEM.format(catalogue=specialty_catalogue_text(), patient_context=state.get("patient_context", "")) + i18n.language_rule(lang)
             result = invoke_structured(SpecialtyClassification, 
                 [SystemMessage(system), *convo, HumanMessage(f"Symptom summary for classification: {state.get('symptom_summary', '')}")]
             )
         except Exception:
             log.exception("Classifier LLM failed; using fallback")
     if result is None:
-        result = fallback.classify(state.get("symptom_summary", "") + " " + " ".join(_user_texts(convo)), is_emergency)
+        result = fallback.classify(state.get("symptom_summary", "") + " " + " ".join(_user_texts(convo)), is_emergency, lang)
     result.confidence = max(0.0, min(1.0, result.confidence))
     if result.confidence < 0.5 and result.specialty != "General Physician":
         result.secondary_specialty = result.specialty
@@ -192,7 +194,7 @@ def classify_specialty(state: HealthState) -> dict:
         result.urgency = "emergency"
     data = result.model_dump()
     msg = _ai(
-        f"Based on what you've shared, I recommend seeing a **{result.specialty}** specialist. {result.reasoning}",
+        i18n.t("classification", lang, specialty=i18n.specialty_label(result.specialty, lang), reasoning=result.reasoning),
         {"type": "classification", **data},
     )
     return {"classification": data, "messages": [msg], "trace": _trace(state, "classify_specialty")}
@@ -202,6 +204,8 @@ def match_providers(state: HealthState) -> dict:
     cls = state.get("classification") or {}
     specialty = cls.get("specialty", "General Physician")
     summary = state.get("symptom_summary", "")
+    lang = _lang(state)
+    spoken = i18n.language_name(lang)
     with SessionLocal() as db:
         candidates = db.query(Provider).filter(Provider.specialty == specialty, Provider.accepts_new.is_(True)).all()
         # Only broaden the search when the primary specialty can't fill a minimum of 3 recommendations.
@@ -221,7 +225,8 @@ def match_providers(state: HealthState) -> dict:
             nxt = next_available(db, p.id)
             soon = 1.0 if nxt and (nxt - clinic_now()).days <= 3 else 0.4 if nxt else 0.0
             specialty_bonus = 0.0 if p.specialty == specialty else -0.15
-            score = 0.60 * similarity + 0.20 * (p.rating / 5) + 0.10 * min(p.years_experience / 25, 1) + 0.10 * soon + specialty_bonus
+            language_bonus = 0.05 if spoken in (p.languages or []) else 0.0  # prefer doctors who speak the patient's language
+            score = 0.60 * similarity + 0.20 * (p.rating / 5) + 0.10 * min(p.years_experience / 25, 1) + 0.10 * soon + specialty_bonus + language_bonus
             scored.append((score, similarity, p, pcases[:3], nxt))
         scored.sort(key=lambda x: x[0], reverse=True)
         top = scored[:TOP_K]
@@ -241,7 +246,7 @@ def match_providers(state: HealthState) -> dict:
                     "location": p.location,
                     "languages": p.languages,
                     "match_score": int(round(min(0.99, max(0.35, score)) * 100)),
-                    "similar_cases": [c.diagnosis for c in pcases if sims.get(c.id, 0) >= RELEVANT_CASE_SIM][:3],
+                    "similar_cases": list(dict.fromkeys(c.diagnosis for c in pcases if sims.get(c.id, 0) >= RELEVANT_CASE_SIM))[:3],
                     "next_available": nxt.isoformat() if nxt else None,
                     "reason": "",
                 }
@@ -256,7 +261,7 @@ def match_providers(state: HealthState) -> dict:
                 for r in recs
             )
             out = invoke_structured(ProviderReasons, 
-                [SystemMessage(MATCHER_SYSTEM), HumanMessage(f"Patient summary: {summary}\n\nCandidates:\n{doctors}")]
+                [SystemMessage(MATCHER_SYSTEM + i18n.language_rule(lang)), HumanMessage(f"Patient summary: {summary}\n\nCandidates:\n{doctors}")]
             )
             reasons = {i.provider_id: i.reason for i in out.items}
         except Exception:
@@ -265,16 +270,11 @@ def match_providers(state: HealthState) -> dict:
         if r["provider_id"] in reasons:
             r["reason"] = reasons[r["provider_id"]]
         elif r["similar_cases"]:
-            r["reason"] = f"Has treated patients with similar symptoms (e.g. {r['similar_cases'][0].lower()}) — {r['years_experience']} years of experience."
+            r["reason"] = i18n.t("reason_similar", lang, case=r["similar_cases"][0].lower(), years=r["years_experience"])
         else:
-            r["reason"] = f"Highly rated {r['specialty']} specialist with {r['years_experience']} years of experience."
+            r["reason"] = i18n.t("reason_generic", lang, specialty=r["specialty"], years=r["years_experience"])
 
-    text = (
-        f"Here are the top {len(recs)} doctors I matched for you, based on patients they've successfully treated with similar symptoms, "
-        "their ratings and how soon they can see you. Select a doctor to view open slots and book."
-        if recs
-        else "I couldn't find an available provider for this specialty right now. Please try again later or contact our clinic."
-    )
+    text = i18n.t("recs_intro", lang, n=len(recs)) if recs else i18n.t("recs_none", lang)
     return {
         "recommendations": recs,
         "messages": [_ai(text, {"type": "recommendations", "providers": recs, "specialty": specialty})],
@@ -303,6 +303,7 @@ def concierge(state: HealthState) -> dict:
     msgs = state.get("messages", [])
     latest = msgs[-1].content if msgs else ""
     cls = state.get("classification") or {}
+    lang = _lang(state)
     decision: ConciergeDecision | None = None
     if not settings.demo_mode:
         try:
@@ -314,12 +315,12 @@ def concierge(state: HealthState) -> dict:
                 summary=state.get("symptom_summary", ""),
                 doctors=doctors,
                 patient_context=state.get("patient_context", ""),
-            )
+            ) + i18n.language_rule(lang)
             decision = invoke_structured(ConciergeDecision, [SystemMessage(system), *_chat_history(msgs)[-12:]])
         except Exception:
             log.exception("Concierge LLM failed; using fallback")
     if decision is None:
-        decision = fallback.concierge(latest)
+        decision = fallback.concierge(latest, lang)
     if fallback.detect_red_flag(latest):
         decision.intent = "new_symptoms"
 

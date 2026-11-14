@@ -21,13 +21,42 @@ START → load_context ─┬─ intake ─► intake_agent ─┬─ ask follow
                                                    └─ new symptoms ─► intake_agent
 ```
 
+## Voice pilot (Sarvam AI)
+
+Patients can talk to the agent in their own language instead of typing. Hindi is the first-class language; ten more
+Indian languages are selectable.
+
+```
+mic (browser, 16 kHz WAV) → POST /api/voice/transcribe → Sarvam Saaras (speech → text, native script)
+        → POST /api/conversations/{id}/messages {content, language}   ← the same LangGraph flow as typed chat
+        → every assistant message carries payload.speech (plain, read-aloud text in the patient's language)
+        → POST /api/voice/speak → Sarvam Bulbul (text → speech) → played automatically
+```
+
+- **Set `SARVAM_API_KEY`** in `.env` to turn Sarvam on. Without it the app falls back to the browser's built-in
+  speech recognition and voices (Chrome / Edge), so the flow can be tried before the key arrives.
+- **Language handling:** with an OpenAI key the agents answer directly in the patient's language (simple spoken
+  words, no markdown); the symptom summary for the doctor is always written in English. Without an OpenAI key
+  (demo mode) Hindi works through hand-written prompts and a Hindi→English symptom glossary
+  (`backend/app/agents/i18n.py`); other languages get English replies.
+- **Safety:** emergency phrases are also detected in Hindi (Devanagari and romanised), independent of the model.
+- **Matching:** doctors who speak the patient's language get a small boost on top of the similar-case score.
+- **Mock data:** `backend/app/seed_india.py` adds 25 Hindi-speaking doctors (Shamli, Muzaffarnagar, Meerut, …)
+  with cases common in Indian clinics, plus a Hindi demo patient: `ramesh@demo.com` / `demo1234`. It is additive,
+  so an existing database picks the new doctors up on the next start.
+- **Limits of the pilot:** recordings are capped at 28 seconds per turn (synchronous speech-to-text); booking
+  still needs a tap on the doctor card; login is still e-mail + password.
+
+Key files: `backend/app/services/speech.py`, `backend/app/routers/voice.py`, `backend/app/agents/i18n.py`,
+`frontend/src/lib/voice.ts`, `frontend/src/components/VoiceBar.tsx`.
+
 ## Run locally
 
 ```bash
 # 1. Backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements-dev.txt
-cp .env.example .env            # add OPENAI_API_KEY (or leave empty for demo mode)
+cp .env.example .env            # add OPENAI_API_KEY and SARVAM_API_KEY (both optional: empty = demo mode / browser voice)
 cd backend && uvicorn app.main:app --reload --port 8000
 
 # 2. Frontend (new terminal)

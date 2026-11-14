@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import { Bot, CalendarCheck, CalendarClock, Check, ClipboardList, Database, Languages, MapPin, Siren, Star, Users } from "lucide-react";
+import { Bot, CalendarCheck, CalendarClock, Check, ClipboardList, Database, Languages, MapPin, Siren, Star, Users, Volume2 } from "lucide-react";
 import clsx from "clsx";
 import { fmtDate, fmtTime, type ChatMessage, type Classification, type Recommendation } from "../lib/api";
 import Avatar from "./Avatar";
@@ -99,7 +99,16 @@ export function ProviderCard({ r, onSelect, index }: { r: Recommendation; onSele
   );
 }
 
-export function MessageItem({ m, onSelectProvider }: { m: ChatMessage; onSelectProvider: (id: number) => void }) {
+function ListenButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-label="Listen to this message"
+      className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 ring-1 ring-brand-600/20 transition hover:bg-brand-50">
+      <Volume2 className="h-4 w-4" /> सुनें · Listen
+    </button>
+  );
+}
+
+export function MessageItem({ m, onSelectProvider, onSpeak }: { m: ChatMessage; onSelectProvider: (id: number) => void; onSpeak?: (m: ChatMessage) => void }) {
   const type = m.payload?.type;
 
   if (m.role === "user") {
@@ -136,6 +145,7 @@ export function MessageItem({ m, onSelectProvider }: { m: ChatMessage; onSelectP
             <a href="tel:112" className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700">Call 112 now</a>
             <a href="tel:108" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-red-700 ring-1 ring-red-300 hover:bg-red-100">Ambulance 108</a>
             <a href="tel:14416" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-red-700 ring-1 ring-red-300 hover:bg-red-100">Tele-MANAS 14416</a>
+            {onSpeak && <ListenButton onClick={() => onSpeak(m)} />}
           </div>
         </div>
       </motion.div>
@@ -156,6 +166,7 @@ export function MessageItem({ m, onSelectProvider }: { m: ChatMessage; onSelectP
             <ReactMarkdown>{m.content}</ReactMarkdown>
           </Bubble>
         </div>
+        {onSpeak && <ListenButton onClick={() => onSpeak(m)} />}
         {type === "classification" && <ClassificationCard c={m.payload as unknown as Classification} />}
         {type === "recommendations" && (
           <div className="grid gap-4 pt-2 md:grid-cols-2">

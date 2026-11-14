@@ -39,8 +39,15 @@ PER_SPECIALTY = {"General Physician": 4, "Cardiology": 3, "Neurology": 3, "Ortho
 
 
 def seed(db: Session) -> None:
-    if db.query(Provider).count() > 0:
-        return
+    """Base demo data (first start only), then the additive India voice-pilot data."""
+    from .seed_india import seed_india
+
+    if db.query(Provider).count() == 0:
+        _seed_base(db)
+    seed_india(db)
+
+
+def _seed_base(db: Session) -> None:
     rng = random.Random(42)
     used_names: set[str] = set()
     doctor_hash = hash_password(DOCTOR_PASSWORD)  # hash once; bcrypt is deliberately slow

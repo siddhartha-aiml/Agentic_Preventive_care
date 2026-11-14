@@ -5,6 +5,7 @@ from fastapi.concurrency import run_in_threadpool
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.orm import Session
 
+from ..agents import i18n
 from ..agents.graph import get_graph
 from ..config import get_settings
 from ..db import get_db
@@ -25,6 +26,7 @@ def graph_state(conv_id: str) -> dict:
     values = get_graph().get_state(_config(conv_id)).values or {}
     return {
         "phase": values.get("phase", "intake"),
+        "language": i18n.normalize_language(values.get("language")),
         "followup_count": values.get("followup_count", 0),
         "max_followups": settings.max_followups,
         "classification": values.get("classification"),
@@ -41,19 +43,16 @@ def _get_conv(db: Session, conv_id: str, patient: Patient) -> Conversation:
     return conv
 
 
-def _greeting(patient: Patient) -> str:
+def _greeting(patient: Patient, language: str | None = None) -> str:
     first = patient.user.full_name.split()[0]
     known = [c.split("(")[0].strip() for c in (patient.conditions or [])][:3]
-    history = (
-        f" I can see your health profile (including {', '.join(known)}) and I'll take it into account."
-        if known
-        else " If you have any existing conditions, you can add them in your Health Profile so I can take them into account."
-    )
-    return (
-        f"Hi {first} 👋 I'm your **Health Guide**.{history}\n\n"
-        "Tell me what's been bothering you — what symptoms are you experiencing, and when did they start? "
-        "I'll ask a few follow-up questions, figure out which specialist fits best, and help you book an appointment."
-    )
+    history = i18n.t("greeting_history", language, known=", ".join(known)) if known else i18n.t("greeting_no_history", language)
+    return i18n.t("greeting", language, first=first, history=history)
+
+
+def _with_speech(content: str, payload: dict | None, language: str | None) -> dict:
+    """Attach the read-aloud version of an assistant message to its payload."""
+    return {**(payload or {"type": "text"}), "speech": i18n.speech_text(content, payload, language), "language": i18n.normalize_language(language)}
 
 
 @router.get("", response_model=list[ConversationOut])
@@ -67,11 +66,12 @@ def list_conversations(patient: Patient = Depends(get_current_patient), db: Sess
 
 
 @router.post("", response_model=ConversationDetail, status_code=201)
-def create_conversation(patient: Patient = Depends(get_current_patient), db: Session = Depends(get_db)):
+def create_conversation(language: str | None = None, patient: Patient = Depends(get_current_patient), db: Session = Depends(get_db)):
     conv = Conversation(patient_id=patient.id)
     db.add(conv)
     db.flush()
-    db.add(Message(conversation_id=conv.id, role="assistant", content=_greeting(patient), payload={"type": "greeting"}))
+    greeting = _greeting(patient, language)
+    db.add(Message(conversation_id=conv.id, role="assistant", content=greeting, payload=_with_speech(greeting, {"type": "greeting"}, language)))
     db.commit()
     db.refresh(conv)
     return ConversationDetail(
@@ -113,7 +113,8 @@ async def send_message(
 
     snapshot = await run_in_threadpool(graph.get_state, config)
     prior = snapshot.values.get("messages", []) if snapshot.values else []
-    inputs: dict = {"patient_id": patient.id, "conversation_id": conv.id, "messages": [HumanMessage(text)]}
+    language = i18n.normalize_language(body.language or (snapshot.values or {}).get("language"))
+    inputs: dict = {"patient_id": patient.id, "conversation_id": conv.id, "language": language, "messages": [HumanMessage(text)]}
     if not prior:
         greeting = next((m.content for m in conv.messages if m.role == "assistant"), _greeting(patient))
         inputs["messages"] = [AIMessage(greeting), HumanMessage(text)]
@@ -133,7 +134,8 @@ async def send_message(
     new_msgs = []
     for m in result["messages"][before:]:
         if isinstance(m, AIMessage) and m.content:
-            row = Message(conversation_id=conv.id, role="assistant", content=m.content, payload=m.additional_kwargs.get("payload"))
+            payload = _with_speech(m.content, m.additional_kwargs.get("payload"), language)
+            row = Message(conversation_id=conv.id, role="assistant", content=m.content, payload=payload)
             db.add(row)
             new_msgs.append(row)
 
