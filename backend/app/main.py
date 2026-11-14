@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agents.graph import get_graph
+from .agents.llm import LLM_HEALTH, agent_mode
 from .agents.specialties import SPECIALTIES
 from .config import get_settings
 from .db import Base, SessionLocal, engine
@@ -27,7 +28,10 @@ async def lifespan(_: FastAPI):
         with SessionLocal() as db:
             seed(db)
     get_graph()
-    log.info("Your Health Guide ready (demo_mode=%s, model=%s)", settings.demo_mode, settings.openai_model)
+    if settings.demo_mode:
+        log.warning("OPENAI_API_KEY not found in environment -> DEMO MODE (rule-based agents)")
+    else:
+        log.info("OPENAI_API_KEY loaded (length %d) -> GPT agents enabled, model=%s", len(settings.openai_api_key), settings.openai_model)
     yield
 
 
@@ -65,6 +69,8 @@ def meta():
         "demo_accounts": demo_accounts,
         "app_name": settings.app_name,
         "demo_mode": settings.demo_mode,
+        "agent_mode": agent_mode(),
+        "llm_last_error_type": LLM_HEALTH["last_error_type"] if agent_mode() == "degraded" else None,
         "model": None if settings.demo_mode else settings.openai_model,
         "specialties": [{"name": k, "description": v["description"], "icon": v["icon"]} for k, v in SPECIALTIES.items()],
     }

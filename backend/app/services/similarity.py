@@ -70,6 +70,9 @@ def score_cases(db: Session, query: str, cases: list[ProviderCase]) -> dict[int,
             qv = _embedder().embed_query(query)
             # text-embedding-3 cosine for related clinical text sits ~0.2-0.7; rescale to [0,1].
             return {c.id: max(0.0, min(1.0, (_cosine(qv, c.embedding) - 0.15) / 0.55)) for c in cases}
-        except Exception:  # network/quota issues should not break matching
+        except Exception as exc:  # network/quota issues should not break matching
+            from ..agents.llm import record_llm_error
+
+            record_llm_error(exc)
             log.exception("Embedding similarity failed; falling back to lexical")
     return {c.id: min(1.0, lexical_similarity(query, f"{c.symptoms} {c.diagnosis}") * 1.6) for c in cases}

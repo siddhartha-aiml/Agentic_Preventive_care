@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +27,12 @@ class Settings(BaseSettings):
     static_dir: str = str(BACKEND_DIR / "static")
     seed_on_startup: bool = True
     show_demo_accounts: bool = True  # expose seeded demo logins on the login page
+
+    @field_validator("openai_api_key", "jwt_secret", mode="before")
+    @classmethod
+    def _clean_secret(cls, v):
+        # Secrets pasted with surrounding whitespace/quotes (e.g. `"sk-..."`) would otherwise break auth.
+        return v.strip().strip('"').strip("'").strip() if isinstance(v, str) else v
 
     @property
     def demo_mode(self) -> bool:

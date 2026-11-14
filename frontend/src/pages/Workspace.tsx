@@ -134,9 +134,14 @@ export default function Workspace() {
           <Logo compact />
           <span className="w-9" />
         </div>
-        {meta?.demo_mode && (
+        {meta?.agent_mode === "demo" && (
           <div className="bg-amber-50 px-4 py-1.5 text-center text-xs font-medium text-amber-800">
             Demo mode — rule-based agents are active. Set <code className="font-mono">OPENAI_API_KEY</code> to enable GPT-powered agents.
+          </div>
+        )}
+        {meta?.agent_mode === "degraded" && (
+          <div className="bg-red-50 px-4 py-1.5 text-center text-xs font-medium text-red-800">
+            The AI service is having trouble right now ({meta.llm_last_error_type}) — backup rule-based agents are answering.
           </div>
         )}
         <Outlet context={{ conversations, refresh, upsert, meta } satisfies WorkspaceCtx} />

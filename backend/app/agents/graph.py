@@ -24,7 +24,7 @@ from ..models import ConsultationSummary, Patient, Provider, ProviderCase, User
 from ..services.scheduling import clinic_now, next_available
 from ..services.similarity import score_cases
 from . import fallback
-from .llm import ConciergeDecision, IntakeDecision, ProviderReasons, SpecialtyClassification, structured
+from .llm import ConciergeDecision, IntakeDecision, ProviderReasons, SpecialtyClassification, invoke_structured
 from .prompts import (
     CLASSIFIER_SYSTEM,
     CONCIERGE_SYSTEM,
@@ -127,7 +127,7 @@ def intake_agent(state: HealthState) -> dict:
                 followup_count=count,
                 max_followups=settings.max_followups,
             )
-            decision = structured(IntakeDecision).invoke([SystemMessage(system), *convo])
+            decision = invoke_structured(IntakeDecision, [SystemMessage(system), *convo])
         except Exception:
             log.exception("Intake LLM failed; using fallback")
     if decision is None:
@@ -177,7 +177,7 @@ def classify_specialty(state: HealthState) -> dict:
     if not settings.demo_mode:
         try:
             system = CLASSIFIER_SYSTEM.format(catalogue=specialty_catalogue_text(), patient_context=state.get("patient_context", ""))
-            result = structured(SpecialtyClassification).invoke(
+            result = invoke_structured(SpecialtyClassification, 
                 [SystemMessage(system), *convo, HumanMessage(f"Symptom summary for classification: {state.get('symptom_summary', '')}")]
             )
         except Exception:
@@ -255,7 +255,7 @@ def match_providers(state: HealthState) -> dict:
                 f"similar past cases: {', '.join(r['similar_cases']) or 'general'}; next available: {r['next_available']}"
                 for r in recs
             )
-            out = structured(ProviderReasons).invoke(
+            out = invoke_structured(ProviderReasons, 
                 [SystemMessage(MATCHER_SYSTEM), HumanMessage(f"Patient summary: {summary}\n\nCandidates:\n{doctors}")]
             )
             reasons = {i.provider_id: i.reason for i in out.items}
@@ -315,7 +315,7 @@ def concierge(state: HealthState) -> dict:
                 doctors=doctors,
                 patient_context=state.get("patient_context", ""),
             )
-            decision = structured(ConciergeDecision).invoke([SystemMessage(system), *_chat_history(msgs)[-12:]])
+            decision = invoke_structured(ConciergeDecision, [SystemMessage(system), *_chat_history(msgs)[-12:]])
         except Exception:
             log.exception("Concierge LLM failed; using fallback")
     if decision is None:

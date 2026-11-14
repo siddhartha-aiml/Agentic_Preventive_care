@@ -136,6 +136,8 @@ export interface PatientProfile {
 export interface Meta {
   app_name: string;
   demo_mode: boolean;
+  agent_mode: "gpt" | "demo" | "degraded";
+  llm_last_error_type: string | null;
   model: string | null;
   specialties: { name: string; description: string; icon: string }[];
   demo_accounts: {

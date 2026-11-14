@@ -119,3 +119,16 @@ def test_conversation_isolation(client, patient_headers):
     other = {"Authorization": f"Bearer {r.json()['access_token']}"}
     assert client.get(f"/api/conversations/{conv}", headers=other).status_code == 404
     assert client.post(f"/api/conversations/{conv}/messages", headers=other, json={"content": "hi"}).status_code == 404
+
+
+def test_agent_mode_reports_llm_failures(monkeypatch):
+    from app.agents import llm
+
+    assert llm.agent_mode() == "demo"
+    monkeypatch.setattr(llm.settings, "openai_api_key", "sk-test")
+    monkeypatch.setattr(llm, "LLM_HEALTH", {"last_ok": None, "last_error": None, "last_error_type": None})
+    assert llm.agent_mode() == "gpt"
+    llm.record_llm_error(RuntimeError("boom"))
+    assert llm.agent_mode() == "degraded"
+    llm.LLM_HEALTH["last_ok"] = llm.LLM_HEALTH["last_error"] + 1
+    assert llm.agent_mode() == "gpt"
